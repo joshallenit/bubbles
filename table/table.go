@@ -272,19 +272,38 @@ func (m Model) View() string {
 	renderTable := lipglosstable.New()
 
 	renderTable.StyleFunc(func(row, col int) lipgloss.Style {
-		style := m.styleFunc(m, row, col)
+		mappedRow := row
+		if row != lipglosstable.HeaderRow {
+			mappedRow = row + m.start
+		}
+		style := m.styleFunc(m, mappedRow, col)
 		if row == lipglosstable.HeaderRow && m.cols[col].Width != 0 && style.GetWidth() == 0 {
 			return style.Width(m.cols[col].Width)
 		} else {
 			return style
 		}
 	})
-	renderTable.Data(tableData{m})
+	var numColumns int
+	if len(m.cols) > 0 {
+		numColumns = len(m.cols)
+	} else {
+		for _, row := range m.rows {
+			numColumns = max(numColumns, len(row))
+		}
+	}
+	renderTable.Data(tableData{m: m, numColumns: numColumns})
+	columns := make([]string, len(m.cols))
+	for i, col := range m.cols {
+		columns[i] = col.Title
+	}
+	renderTable.Headers(columns...)
 	if m.manualHeight != -1 {
-		renderTable.Height(m.manualHeight)
+		// XXX +4 for borders, need to expose computeHeader from lipgloss Table
+		renderTable.Height(m.manualHeight + 4)
 	}
 	if m.manualWidth != -1 {
-		renderTable.Width(m.manualWidth)
+		// XXX +2 for borders
+		renderTable.Width(m.manualWidth + 2)
 	}
 	return renderTable.Render()
 }
@@ -353,22 +372,21 @@ func (m Model) Cursor() int {
 // SetCursor sets the cursor position in the table.
 func (m *Model) SetCursor(n int) {
 	m.cursor = clamp(n, 0, len(m.rows)-1)
-	m.start = clamp(clamp(m.start, m.cursor-m.Height()-1, m.cursor+m.Height()-1), 0, len(m.rows)-1)
-	println("Set cursor to ", m.cursor)
+	m.start = clamp(clamp(m.start, m.cursor-(m.Height()-1), m.cursor), 0, len(m.rows)-1)
 }
 
 // MoveUp moves the selection up by any number of rows.
 // It can not go above the first row.
 func (m *Model) MoveUp(n int) {
 	m.cursor = clamp(m.cursor-n, 0, len(m.rows)-1)
-	m.start = clamp(clamp(m.start, m.cursor-m.Height()-1, m.cursor+m.Height()-1), 0, len(m.rows)-1)
+	m.start = clamp(clamp(m.start, m.cursor-(m.Height()-1), m.cursor), 0, len(m.rows)-1)
 }
 
 // MoveDown moves the selection down by any number of rows.
 // It can not go below the last row.
 func (m *Model) MoveDown(n int) {
 	m.cursor = clamp(m.cursor+n, 0, len(m.rows)-1)
-	m.start = clamp(clamp(m.start, m.cursor-m.Height()-1, m.cursor+m.Height()-1), 0, len(m.rows)-1)
+	m.start = clamp(clamp(m.start, m.cursor-(m.Height()-1), m.cursor), 0, len(m.rows)-1)
 }
 
 // GotoTop moves the selection to the first row.
@@ -417,23 +435,22 @@ func clamp(v, low, high int) int {
 	return min(max(v, low), high)
 }
 
+// Implements lipglosstable.Data without exposing it.
 type tableData struct {
-	m Model
+	m          Model
+	numColumns int
 }
 
 var _ lipglosstable.Data = tableData{}
 
 func (t tableData) At(row, col int) string {
-	if row == lipglosstable.HeaderRow {
-		return t.m.cols[col].Title
-	}
 	return t.m.rows[t.m.start+row][col]
 }
 
 func (t tableData) Rows() int {
-	return t.m.Height()
+	return min(t.m.Height(), len(t.m.rows)-t.m.start)
 }
 
 func (t tableData) Columns() int {
-	return len(t.m.cols)
+	return t.numColumns
 }
