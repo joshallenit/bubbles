@@ -205,8 +205,12 @@ func WithStyles(s Styles) Option {
 func WithStyleFunc(styleFunc StyleFunc) Option {
 	return func(m *Model) {
 		m.styleFunc = styleFunc
-
 	}
+}
+
+// SetRows sets a new rows state.
+func (m *Model) SetStyleFunc(styleFunc StyleFunc) {
+	WithStyleFunc(styleFunc)(m)
 }
 
 // WithKeyMap sets the key map.
@@ -268,7 +272,12 @@ func (m Model) View() string {
 	renderTable := lipglosstable.New()
 
 	renderTable.StyleFunc(func(row, col int) lipgloss.Style {
-		return m.styleFunc(m, row, col)
+		style := m.styleFunc(m, row, col)
+		if row == lipglosstable.HeaderRow && m.cols[col].Width != 0 && style.GetWidth() == 0 {
+			return style.Width(m.cols[col].Width)
+		} else {
+			return style
+		}
 	})
 	renderTable.Data(tableData{m})
 	if m.manualHeight != -1 {
