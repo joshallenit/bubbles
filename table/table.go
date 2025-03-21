@@ -133,7 +133,21 @@ func stylesToStyleFunc(s Styles) StyleFunc {
 		if row == lipglosstable.HeaderRow {
 			return s.Header
 		} else if row == m.Cursor() {
-			return s.Selected
+			selected := s.Selected.Inherit(s.Cell)
+			// Copy values that are ignored by inherit
+			if selected.GetPaddingTop() == 0 {
+				selected = selected.PaddingTop(s.Cell.GetPaddingTop())
+			}
+			if selected.GetPaddingBottom() == 0 {
+				selected = selected.PaddingBottom(s.Cell.GetPaddingBottom())
+			}
+			if selected.GetPaddingLeft() == 0 {
+				selected = selected.PaddingLeft(s.Cell.GetPaddingLeft())
+			}
+			if selected.GetPaddingRight() == 0 {
+				selected = selected.PaddingRight(s.Cell.GetPaddingRight())
+			}
+			return selected
 		} else {
 			return s.Cell
 		}
@@ -276,15 +290,10 @@ func (m Model) View() string {
 		if row != lipglosstable.HeaderRow {
 			mappedRow = row + m.start
 		}
-		style := m.styleFunc(m, mappedRow, col)
-		if m.cols[col].Width != 0 && style.GetWidth() == 0 {
-			return style.Width(m.cols[col].Width)
-		} else {
-			return style
-		}
+		return m.styleFunc(m, mappedRow, col)
 	})
 	renderTable.Data(tableData{m: m, maxColumnWidths: m.getMaxColumnWidths()})
-	renderTable.Border(lipgloss.Border{}).BorderBottom(false).BorderColumn(false).BorderHeader(false).BorderLeft(false).BorderRight(false).BorderRow(false).BorderTop(false)
+	renderTable.BorderBottom(false).BorderColumn(false).BorderHeader(false).BorderLeft(false).BorderRight(false).BorderRow(false).BorderTop(false)
 	columns := make([]string, len(m.cols))
 	for i, col := range m.cols {
 		columns[i] = col.Title
