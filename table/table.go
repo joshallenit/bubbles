@@ -283,15 +283,7 @@ func (m Model) View() string {
 			return style
 		}
 	})
-	var numColumns int
-	if len(m.cols) > 0 {
-		numColumns = len(m.cols)
-	} else {
-		for _, row := range m.rows {
-			numColumns = max(numColumns, len(row))
-		}
-	}
-	renderTable.Data(tableData{m: m, numColumns: numColumns})
+	renderTable.Data(tableData{m: m, maxColumnWidths: m.getMaxColumnWidths()})
 	columns := make([]string, len(m.cols))
 	for i, col := range m.cols {
 		columns[i] = col.Title
@@ -306,6 +298,29 @@ func (m Model) View() string {
 		renderTable.Width(m.manualWidth + 2)
 	}
 	return renderTable.Render()
+}
+
+func (m Model) getMaxColumnWidths() []int {
+	var numColumns int
+	if len(m.cols) > 0 {
+		numColumns = len(m.cols)
+	} else {
+		for _, row := range m.rows {
+			numColumns = max(numColumns, len(row))
+		}
+	}
+	maxColumnWidths := make([]int, numColumns)
+	for _, row := range m.rows {
+		for i, col := range row {
+			if i < len(maxColumnWidths) {
+				maxColumnWidths[i] = max(maxColumnWidths[i], len(col))
+			} else {
+				break
+			}
+		}
+		numColumns = max(numColumns, len(row))
+	}
+	return maxColumnWidths
 }
 
 // HelpView is a helper method for rendering the help menu from the keymap.
@@ -437,14 +452,17 @@ func clamp(v, low, high int) int {
 
 // Implements lipglosstable.Data without exposing it.
 type tableData struct {
-	m          Model
-	numColumns int
+	m Model
+	// Space pad all of the rows so that when scrolling the width of the columns does not change.
+	maxColumnWidths []int
 }
 
 var _ lipglosstable.Data = tableData{}
 
 func (t tableData) At(row, col int) string {
-	return t.m.rows[t.m.start+row][col]
+	data := t.m.rows[t.m.start+row][col]
+	padding := strings.Repeat(" ", t.maxColumnWidths[col]-len(data))
+	return data + padding
 }
 
 func (t tableData) Rows() int {
@@ -452,5 +470,5 @@ func (t tableData) Rows() int {
 }
 
 func (t tableData) Columns() int {
-	return t.numColumns
+	return len(t.maxColumnWidths)
 }
