@@ -8,6 +8,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	lipglosstable "github.com/charmbracelet/lipgloss/table"
+	"github.com/mattn/go-runewidth"
 )
 
 // Model defines a state for the table widget.
@@ -21,11 +22,12 @@ type Model struct {
 	focus     bool
 	styleFunc StyleFunc
 
-	// -1 to be fit height (all rows)
+	// 0 to be fit height (all rows)
 	manualHeight int
-	// -1 to be fit width (all data)
+	// 0 to be fit width (all data)
 	manualWidth int
-	start       int
+	// index of rows that is first visible. Changes when scrolling.
+	start int
 }
 
 // Row represents one line in the table.
@@ -146,11 +148,9 @@ type Option func(*Model)
 // New creates a new model for the table widget.
 func New(opts ...Option) Model {
 	m := Model{
-		cursor:       0,
-		manualHeight: -1,
-		manualWidth:  -1,
-		KeyMap:       DefaultKeyMap(),
-		Help:         help.New(),
+		cursor: 0,
+		KeyMap: DefaultKeyMap(),
+		Help:   help.New(),
 	}
 	m.styleFunc = stylesToStyleFunc(DefaultStyles())
 
@@ -277,23 +277,24 @@ func (m Model) View() string {
 			mappedRow = row + m.start
 		}
 		style := m.styleFunc(m, mappedRow, col)
-		if row == lipglosstable.HeaderRow && m.cols[col].Width != 0 && style.GetWidth() == 0 {
+		if m.cols[col].Width != 0 && style.GetWidth() == 0 {
 			return style.Width(m.cols[col].Width)
 		} else {
 			return style
 		}
 	})
 	renderTable.Data(tableData{m: m, maxColumnWidths: m.getMaxColumnWidths()})
+	renderTable.Border(lipgloss.Border{}).BorderBottom(false).BorderColumn(false).BorderHeader(false).BorderLeft(false).BorderRight(false).BorderRow(false).BorderTop(false)
 	columns := make([]string, len(m.cols))
 	for i, col := range m.cols {
 		columns[i] = col.Title
 	}
 	renderTable.Headers(columns...)
-	if m.manualHeight != -1 {
+	if m.manualHeight != 0 {
 		// XXX +4 for borders, need to expose computeHeader from lipgloss Table
 		renderTable.Height(m.manualHeight + 4)
 	}
-	if m.manualWidth != -1 {
+	if m.manualWidth != 0 {
 		// XXX +2 for borders
 		renderTable.Width(m.manualWidth + 2)
 	}
@@ -310,8 +311,18 @@ func (m Model) getMaxColumnWidths() []int {
 		}
 	}
 	maxColumnWidths := make([]int, numColumns)
+	for i, col := range m.cols {
+		if i < len(maxColumnWidths) {
+			maxColumnWidths[i] = max(maxColumnWidths[i], col.Width)
+		} else {
+			break
+		}
+	}
 	for _, row := range m.rows {
 		for i, col := range row {
+			if i < len(m.cols) && m.cols[i].Width != 0 {
+				break
+			}
 			if i < len(maxColumnWidths) {
 				maxColumnWidths[i] = max(maxColumnWidths[i], len(col))
 			} else {
@@ -372,7 +383,7 @@ func (m *Model) SetHeight(h int) {
 
 // Height returns the viewport height of the table.
 func (m Model) Height() int {
-	if m.manualHeight != -1 {
+	if m.manualHeight != 0 {
 		return m.manualHeight
 	} else {
 		return len(m.rows)
@@ -461,7 +472,8 @@ var _ lipglosstable.Data = tableData{}
 
 func (t tableData) At(row, col int) string {
 	data := t.m.rows[t.m.start+row][col]
-	padding := strings.Repeat(" ", t.maxColumnWidths[col]-len(data))
+	data = runewidth.Truncate(data, t.maxColumnWidths[col], "…")
+	padding := strings.Repeat(" ", max(0, t.maxColumnWidths[col]-len(data)))
 	return data + padding
 }
 
