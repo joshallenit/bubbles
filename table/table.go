@@ -292,13 +292,10 @@ func (m Model) View() string {
 		}
 		return m.styleFunc(m, mappedRow, col)
 	})
-	renderTable.Data(tableData{m: m, maxColumnWidths: m.getMaxColumnWidths()})
+	maxColumnWidths := m.getMaxColumnWidths()
+	renderTable.Data(tableData{m: m, maxColumnWidths: maxColumnWidths})
 	renderTable.BorderBottom(false).BorderColumn(false).BorderHeader(false).BorderLeft(false).BorderRight(false).BorderRow(false).BorderTop(false)
-	columns := make([]string, len(m.cols))
-	for i, col := range m.cols {
-		columns[i] = col.Title
-	}
-	renderTable.Headers(columns...)
+	renderTable.Headers(m.getRenderColumns(maxColumnWidths)...)
 	if m.manualHeight != 0 {
 		// XXX +4 for borders, need to expose computeHeader from lipgloss Table
 		renderTable.Height(m.manualHeight + 4)
@@ -308,6 +305,17 @@ func (m Model) View() string {
 		renderTable.Width(m.manualWidth + 2)
 	}
 	return renderTable.Render()
+}
+
+func (m Model) getRenderColumns(maxColumnWidths []int) []string {
+	columns := make([]string, len(m.cols))
+	for i, col := range m.cols {
+		data := col.Title
+		data = runewidth.Truncate(data, maxColumnWidths[i], "…")
+		padding := strings.Repeat(" ", max(0, maxColumnWidths[i]-len(data)))
+		columns[i] = data + padding
+	}
+	return columns
 }
 
 func (m Model) getMaxColumnWidths() []int {
