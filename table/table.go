@@ -5,9 +5,9 @@ import (
 
 	"github.com/charmbracelet/bubbles/help"
 	"github.com/charmbracelet/bubbles/key"
-	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	lipglosstable "github.com/charmbracelet/lipgloss/table"
 	"github.com/mattn/go-runewidth"
 )
 
@@ -16,15 +16,18 @@ type Model struct {
 	KeyMap KeyMap
 	Help   help.Model
 
-	cols   []Column
-	rows   []Row
-	cursor int
-	focus  bool
-	styles Styles
+	cols      []Column
+	rows      []Row
+	cursor    int
+	focus     bool
+	styleFunc StyleFunc
 
-	viewport viewport.Model
-	start    int
-	end      int
+	// 0 to be fit height (all rows)
+	manualHeight int
+	// 0 to be fit width (all data)
+	manualWidth int
+	// index of rows that is first visible. Changes when scrolling.
+	start int
 }
 
 // Row represents one line in the table.
@@ -109,6 +112,8 @@ type Styles struct {
 	Selected lipgloss.Style
 }
 
+type StyleFunc func(m Model, row int, col int) lipgloss.Style
+
 // DefaultStyles returns a set of default style definitions for this table.
 func DefaultStyles() Styles {
 	return Styles{
@@ -120,8 +125,33 @@ func DefaultStyles() Styles {
 
 // SetStyles sets the table styles.
 func (m *Model) SetStyles(s Styles) {
-	m.styles = s
-	m.UpdateViewport()
+	m.styleFunc = stylesToStyleFunc(s)
+}
+
+func stylesToStyleFunc(s Styles) StyleFunc {
+	return func(m Model, row int, col int) lipgloss.Style {
+		if row == lipglosstable.HeaderRow {
+			return s.Header
+		} else if row == m.Cursor() {
+			selected := s.Selected.Inherit(s.Cell)
+			// Copy values that are ignored by inherit
+			if selected.GetPaddingTop() == 0 {
+				selected = selected.PaddingTop(s.Cell.GetPaddingTop())
+			}
+			if selected.GetPaddingBottom() == 0 {
+				selected = selected.PaddingBottom(s.Cell.GetPaddingBottom())
+			}
+			if selected.GetPaddingLeft() == 0 {
+				selected = selected.PaddingLeft(s.Cell.GetPaddingLeft())
+			}
+			if selected.GetPaddingRight() == 0 {
+				selected = selected.PaddingRight(s.Cell.GetPaddingRight())
+			}
+			return selected
+		} else {
+			return s.Cell
+		}
+	}
 }
 
 // Option is used to set options in New. For example:
@@ -132,20 +162,15 @@ type Option func(*Model)
 // New creates a new model for the table widget.
 func New(opts ...Option) Model {
 	m := Model{
-		cursor:   0,
-		viewport: viewport.New(0, 20), //nolint:mnd
-
+		cursor: 0,
 		KeyMap: DefaultKeyMap(),
 		Help:   help.New(),
-		styles: DefaultStyles(),
 	}
+	m.styleFunc = stylesToStyleFunc(DefaultStyles())
 
 	for _, opt := range opts {
 		opt(&m)
 	}
-
-	m.UpdateViewport()
-
 	return m
 }
 
@@ -166,14 +191,15 @@ func WithRows(rows []Row) Option {
 // WithHeight sets the height of the table.
 func WithHeight(h int) Option {
 	return func(m *Model) {
-		m.viewport.Height = h - lipgloss.Height(m.headersView())
+		m.manualHeight = h
+		m.onResize()
 	}
 }
 
 // WithWidth sets the width of the table.
 func WithWidth(w int) Option {
 	return func(m *Model) {
-		m.viewport.Width = w
+		m.manualWidth = w
 	}
 }
 
@@ -187,8 +213,19 @@ func WithFocused(f bool) Option {
 // WithStyles sets the table styles.
 func WithStyles(s Styles) Option {
 	return func(m *Model) {
-		m.styles = s
+		m.styleFunc = stylesToStyleFunc(s)
 	}
+}
+
+func WithStyleFunc(styleFunc StyleFunc) Option {
+	return func(m *Model) {
+		m.styleFunc = styleFunc
+	}
+}
+
+// SetRows sets a new rows state.
+func (m *Model) SetStyleFunc(styleFunc StyleFunc) {
+	WithStyleFunc(styleFunc)(m)
 }
 
 // WithKeyMap sets the key map.
@@ -212,13 +249,13 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 		case key.Matches(msg, m.KeyMap.LineDown):
 			m.MoveDown(1)
 		case key.Matches(msg, m.KeyMap.PageUp):
-			m.MoveUp(m.viewport.Height)
+			m.MoveUp(m.Height())
 		case key.Matches(msg, m.KeyMap.PageDown):
-			m.MoveDown(m.viewport.Height)
+			m.MoveDown(m.Height())
 		case key.Matches(msg, m.KeyMap.HalfPageUp):
-			m.MoveUp(m.viewport.Height / 2) //nolint:mnd
+			m.MoveUp(m.Height() / 2) //nolint:mnd
 		case key.Matches(msg, m.KeyMap.HalfPageDown):
-			m.MoveDown(m.viewport.Height / 2) //nolint:mnd
+			m.MoveDown(m.Height() / 2) //nolint:mnd
 		case key.Matches(msg, m.KeyMap.GotoTop):
 			m.GotoTop()
 		case key.Matches(msg, m.KeyMap.GotoBottom):
@@ -238,18 +275,80 @@ func (m Model) Focused() bool {
 // interact.
 func (m *Model) Focus() {
 	m.focus = true
-	m.UpdateViewport()
 }
 
 // Blur blurs the table, preventing selection or movement.
 func (m *Model) Blur() {
 	m.focus = false
-	m.UpdateViewport()
 }
 
 // View renders the component.
 func (m Model) View() string {
-	return m.headersView() + "\n" + m.viewport.View()
+	renderTable := lipglosstable.New()
+
+	renderTable.StyleFunc(func(row, col int) lipgloss.Style {
+		mappedRow := row
+		if row != lipglosstable.HeaderRow {
+			mappedRow = row + m.start
+		}
+		return m.styleFunc(m, mappedRow, col)
+	})
+	maxColumnWidths := m.getMaxColumnWidths()
+	renderTable.Data(tableData{m: m, maxColumnWidths: maxColumnWidths})
+	renderTable.Headers(m.getRenderColumns(maxColumnWidths)...)
+	if m.manualHeight != 0 {
+		// XXX +4 for borders, need to expose computeHeader from lipgloss Table
+		renderTable.Height(m.manualHeight + 4)
+	}
+	if m.manualWidth != 0 {
+		// XXX +2 for borders
+		renderTable.Width(m.manualWidth + 2)
+	}
+	return renderTable.Render()
+}
+
+func (m Model) getRenderColumns(maxColumnWidths []int) []string {
+	columns := make([]string, len(m.cols))
+	for i, col := range m.cols {
+		data := col.Title
+		data = runewidth.Truncate(data, maxColumnWidths[i], "…")
+		padding := strings.Repeat(" ", max(0, maxColumnWidths[i]-len(data)))
+		columns[i] = data + padding
+	}
+	return columns
+}
+
+func (m Model) getMaxColumnWidths() []int {
+	var numColumns int
+	if len(m.cols) > 0 {
+		numColumns = len(m.cols)
+	} else {
+		for _, row := range m.rows {
+			numColumns = max(numColumns, len(row))
+		}
+	}
+	maxColumnWidths := make([]int, numColumns)
+	for i, col := range m.cols {
+		if i < len(maxColumnWidths) {
+			maxColumnWidths[i] = max(maxColumnWidths[i], col.Width)
+		} else {
+			break
+		}
+	}
+	for _, row := range m.rows {
+		for i, col := range row {
+			if i < len(m.cols) && m.cols[i].Width != 0 {
+				break
+			}
+			if i < len(maxColumnWidths) {
+				maxColumnWidths[i] = max(maxColumnWidths[i], len(col))
+			} else {
+				break
+			}
+		}
+		numColumns = max(numColumns, len(row))
+	}
+	return maxColumnWidths
 }
 
 // HelpView is a helper method for rendering the help menu from the keymap.
@@ -257,29 +356,6 @@ func (m Model) View() string {
 // manually in your application, where applicable.
 func (m Model) HelpView() string {
 	return m.Help.View(m.KeyMap)
-}
-
-// UpdateViewport updates the list content based on the previously defined
-// columns and rows.
-func (m *Model) UpdateViewport() {
-	renderedRows := make([]string, 0, len(m.rows))
-
-	// Render only rows from: m.cursor-m.viewport.Height to: m.cursor+m.viewport.Height
-	// Constant runtime, independent of number of rows in a table.
-	// Limits the number of renderedRows to a maximum of 2*m.viewport.Height
-	if m.cursor >= 0 {
-		m.start = clamp(m.cursor-m.viewport.Height, 0, m.cursor)
-	} else {
-		m.start = 0
-	}
-	m.end = clamp(m.cursor+m.viewport.Height, m.cursor, len(m.rows))
-	for i := m.start; i < m.end; i++ {
-		renderedRows = append(renderedRows, m.renderRow(i))
-	}
-
-	m.viewport.SetContent(
-		lipgloss.JoinVertical(lipgloss.Left, renderedRows...),
-	)
 }
 
 // SelectedRow returns the selected row.
@@ -305,35 +381,30 @@ func (m Model) Columns() []Column {
 // SetRows sets a new rows state.
 func (m *Model) SetRows(r []Row) {
 	m.rows = r
-	m.UpdateViewport()
 }
 
 // SetColumns sets a new columns state.
 func (m *Model) SetColumns(c []Column) {
 	m.cols = c
-	m.UpdateViewport()
 }
 
 // SetWidth sets the width of the viewport of the table.
 func (m *Model) SetWidth(w int) {
-	m.viewport.Width = w
-	m.UpdateViewport()
+	WithWidth(w)(m)
 }
 
 // SetHeight sets the height of the viewport of the table.
 func (m *Model) SetHeight(h int) {
-	m.viewport.Height = h - lipgloss.Height(m.headersView())
-	m.UpdateViewport()
+	WithHeight(h)(m)
 }
 
 // Height returns the viewport height of the table.
 func (m Model) Height() int {
-	return m.viewport.Height
-}
-
-// Width returns the viewport width of the table.
-func (m Model) Width() int {
-	return m.viewport.Width
+	if m.manualHeight != 0 {
+		return m.manualHeight
+	} else {
+		return len(m.rows)
+	}
 }
 
 // Cursor returns the index of the selected row.
@@ -344,39 +415,21 @@ func (m Model) Cursor() int {
 // SetCursor sets the cursor position in the table.
 func (m *Model) SetCursor(n int) {
 	m.cursor = clamp(n, 0, len(m.rows)-1)
-	m.UpdateViewport()
+	m.onResize()
 }
 
 // MoveUp moves the selection up by any number of rows.
 // It can not go above the first row.
 func (m *Model) MoveUp(n int) {
 	m.cursor = clamp(m.cursor-n, 0, len(m.rows)-1)
-	switch {
-	case m.start == 0:
-		m.viewport.SetYOffset(clamp(m.viewport.YOffset, 0, m.cursor))
-	case m.start < m.viewport.Height:
-		m.viewport.YOffset = (clamp(clamp(m.viewport.YOffset+n, 0, m.cursor), 0, m.viewport.Height))
-	case m.viewport.YOffset >= 1:
-		m.viewport.YOffset = clamp(m.viewport.YOffset+n, 1, m.viewport.Height)
-	}
-	m.UpdateViewport()
+	m.onResize()
 }
 
 // MoveDown moves the selection down by any number of rows.
 // It can not go below the last row.
 func (m *Model) MoveDown(n int) {
 	m.cursor = clamp(m.cursor+n, 0, len(m.rows)-1)
-	m.UpdateViewport()
-
-	switch {
-	case m.end == len(m.rows) && m.viewport.YOffset > 0:
-		m.viewport.SetYOffset(clamp(m.viewport.YOffset-n, 1, m.viewport.Height))
-	case m.cursor > (m.end-m.start)/2 && m.viewport.YOffset > 0:
-		m.viewport.SetYOffset(clamp(m.viewport.YOffset-n, 1, m.cursor))
-	case m.viewport.YOffset > 1:
-	case m.cursor > m.viewport.YOffset+m.viewport.Height-1:
-		m.viewport.SetYOffset(clamp(m.viewport.YOffset+1, 0, 1))
-	}
+	m.onResize()
 }
 
 // GotoTop moves the selection to the first row.
@@ -387,6 +440,10 @@ func (m *Model) GotoTop() {
 // GotoBottom moves the selection to the last row.
 func (m *Model) GotoBottom() {
 	m.MoveDown(len(m.rows))
+}
+
+func (m *Model) onResize() {
+	m.start = clamp(m.start, max(m.cursor-(m.Height()-1), 0), m.cursor)
 }
 
 // FromValues create the table rows from a simple string. It uses `\n` by
@@ -403,39 +460,6 @@ func (m *Model) FromValues(value, separator string) {
 	}
 
 	m.SetRows(rows)
-}
-
-func (m Model) headersView() string {
-	s := make([]string, 0, len(m.cols))
-	for _, col := range m.cols {
-		if col.Width <= 0 {
-			continue
-		}
-		style := lipgloss.NewStyle().Width(col.Width).MaxWidth(col.Width).Inline(true)
-		renderedCell := style.Render(runewidth.Truncate(col.Title, col.Width, "…"))
-		s = append(s, m.styles.Header.Render(renderedCell))
-	}
-	return lipgloss.JoinHorizontal(lipgloss.Top, s...)
-}
-
-func (m *Model) renderRow(r int) string {
-	s := make([]string, 0, len(m.cols))
-	for i, value := range m.rows[r] {
-		if m.cols[i].Width <= 0 {
-			continue
-		}
-		style := lipgloss.NewStyle().Width(m.cols[i].Width).MaxWidth(m.cols[i].Width).Inline(true)
-		renderedCell := m.styles.Cell.Render(style.Render(runewidth.Truncate(value, m.cols[i].Width, "…")))
-		s = append(s, renderedCell)
-	}
-
-	row := lipgloss.JoinHorizontal(lipgloss.Top, s...)
-
-	if r == m.cursor {
-		return m.styles.Selected.Render(row)
-	}
-
-	return row
 }
 
 func max(a, b int) int {
@@ -456,4 +480,28 @@ func min(a, b int) int {
 
 func clamp(v, low, high int) int {
 	return min(max(v, low), high)
+}
+
+// Implements lipglosstable.Data without exposing it.
+type tableData struct {
+	m Model
+	// Space pad all of the rows so that when scrolling the width of the columns does not change.
+	maxColumnWidths []int
+}
+
+var _ lipglosstable.Data = tableData{}
+
+func (t tableData) At(row, col int) string {
+	data := t.m.rows[t.m.start+row][col]
+	data = runewidth.Truncate(data, t.maxColumnWidths[col], "…")
+	padding := strings.Repeat(" ", max(0, t.maxColumnWidths[col]-len(data)))
+	return data + padding
+}
+
+func (t tableData) Rows() int {
+	return min(t.m.Height(), len(t.m.rows)-t.m.start)
+}
+
+func (t tableData) Columns() int {
+	return len(t.maxColumnWidths)
 }

@@ -65,6 +65,8 @@ var cols = []Column{
 	{Title: "col3", Width: 10},
 }
 
+var expectedColView = "col1      col2      col3      \n"
+
 func TestRenderRow(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -74,34 +76,34 @@ func TestRenderRow(t *testing.T) {
 		{
 			name: "simple row",
 			table: &Model{
-				rows:   []Row{{"Foooooo", "Baaaaar", "Baaaaaz"}},
-				cols:   cols,
-				styles: Styles{Cell: lipgloss.NewStyle()},
+				rows:      []Row{{"Foooooo", "Baaaaar", "Baaaaaz"}},
+				cols:      cols,
+				styleFunc: stylesToStyleFunc(Styles{Cell: lipgloss.NewStyle()}),
 			},
-			expected: "Foooooo   Baaaaar   Baaaaaz   ",
+			expected: expectedColView + "Foooooo   Baaaaar   Baaaaaz   ",
 		},
 		{
 			name: "simple row with truncations",
 			table: &Model{
-				rows:   []Row{{"Foooooooooo", "Baaaaaaaaar", "Quuuuuuuuux"}},
-				cols:   cols,
-				styles: Styles{Cell: lipgloss.NewStyle()},
+				rows:      []Row{{"Foooooooooo", "Baaaaaaaaar", "Quuuuuuuuux"}},
+				cols:      cols,
+				styleFunc: stylesToStyleFunc(Styles{Cell: lipgloss.NewStyle()}),
 			},
-			expected: "Foooooooo…Baaaaaaaa…Quuuuuuuu…",
+			expected: expectedColView + "Foooooooo…Baaaaaaaa…Quuuuuuuu…",
 		},
 		{
 			name: "simple row avoiding truncations",
 			table: &Model{
-				rows:   []Row{{"Fooooooooo", "Baaaaaaaar", "Quuuuuuuux"}},
-				cols:   cols,
-				styles: Styles{Cell: lipgloss.NewStyle()},
+				rows:      []Row{{"Fooooooooo", "Baaaaaaaar", "Quuuuuuuux"}},
+				cols:      cols,
+				styleFunc: stylesToStyleFunc(Styles{Cell: lipgloss.NewStyle()}),
 			},
-			expected: "FoooooooooBaaaaaaaarQuuuuuuuux",
+			expected: expectedColView + "FoooooooooBaaaaaaaarQuuuuuuuux",
 		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			row := tc.table.renderRow(0)
+			row := tc.table.View()
 			if row != tc.expected {
 				t.Fatalf("\n\nWant: \n%s\n\nGot:  \n%s\n", tc.expected, row)
 			}
