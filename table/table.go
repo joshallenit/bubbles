@@ -192,6 +192,7 @@ func WithRows(rows []Row) Option {
 func WithHeight(h int) Option {
 	return func(m *Model) {
 		m.manualHeight = h
+		m.onResize()
 	}
 }
 
@@ -294,7 +295,6 @@ func (m Model) View() string {
 	})
 	maxColumnWidths := m.getMaxColumnWidths()
 	renderTable.Data(tableData{m: m, maxColumnWidths: maxColumnWidths})
-	renderTable.BorderBottom(false).BorderColumn(false).BorderHeader(false).BorderLeft(false).BorderRight(false).BorderRow(false).BorderTop(false)
 	renderTable.Headers(m.getRenderColumns(maxColumnWidths)...)
 	if m.manualHeight != 0 {
 		// XXX +4 for borders, need to expose computeHeader from lipgloss Table
@@ -415,21 +415,21 @@ func (m Model) Cursor() int {
 // SetCursor sets the cursor position in the table.
 func (m *Model) SetCursor(n int) {
 	m.cursor = clamp(n, 0, len(m.rows)-1)
-	m.start = clamp(clamp(m.start, m.cursor-(m.Height()-1), m.cursor), 0, len(m.rows)-1)
+	m.onResize()
 }
 
 // MoveUp moves the selection up by any number of rows.
 // It can not go above the first row.
 func (m *Model) MoveUp(n int) {
 	m.cursor = clamp(m.cursor-n, 0, len(m.rows)-1)
-	m.start = clamp(clamp(m.start, m.cursor-(m.Height()-1), m.cursor), 0, len(m.rows)-1)
+	m.onResize()
 }
 
 // MoveDown moves the selection down by any number of rows.
 // It can not go below the last row.
 func (m *Model) MoveDown(n int) {
 	m.cursor = clamp(m.cursor+n, 0, len(m.rows)-1)
-	m.start = clamp(clamp(m.start, m.cursor-(m.Height()-1), m.cursor), 0, len(m.rows)-1)
+	m.onResize()
 }
 
 // GotoTop moves the selection to the first row.
@@ -440,6 +440,10 @@ func (m *Model) GotoTop() {
 // GotoBottom moves the selection to the last row.
 func (m *Model) GotoBottom() {
 	m.MoveDown(len(m.rows))
+}
+
+func (m *Model) onResize() {
+	m.start = clamp(m.start, max(m.cursor-(m.Height()-1), 0), m.cursor)
 }
 
 // FromValues create the table rows from a simple string. It uses `\n` by
