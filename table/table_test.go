@@ -6,6 +6,8 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/charmbracelet/x/exp/golden"
+
+	tea "github.com/charmbracelet/bubbletea"
 )
 
 func TestFromValues(t *testing.T) {
