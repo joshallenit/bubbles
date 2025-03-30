@@ -28,6 +28,9 @@ type Model struct {
 	manualWidth int
 	// index of rows that is first visible. Changes when scrolling.
 	start int
+
+	// Whether to wrap cursor on LineUp/LineDown
+	wrapCursor bool
 }
 
 // Row represents one line in the table.
@@ -125,7 +128,7 @@ func DefaultStyles() Styles {
 
 // SetStyles sets the table styles.
 func (m *Model) SetStyles(s Styles) {
-	m.styleFunc = stylesToStyleFunc(s)
+	m.SetStyleFunc(stylesToStyleFunc(s))
 }
 
 func stylesToStyleFunc(s Styles) StyleFunc {
@@ -235,6 +238,16 @@ func WithKeyMap(km KeyMap) Option {
 	}
 }
 
+func (m *Model) SetWrapCursor(wrapCursor bool) {
+	WithWrapCursor(wrapCursor)(m)
+}
+
+func WithWrapCursor(wrapCursor bool) Option {
+	return func(m *Model) {
+		m.wrapCursor = wrapCursor
+	}
+}
+
 // Update is the Bubble Tea update loop.
 func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 	if !m.focus {
@@ -245,9 +258,17 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 	case tea.KeyMsg:
 		switch {
 		case key.Matches(msg, m.KeyMap.LineUp):
-			m.MoveUp(1)
+			if m.cursor == 0 && m.wrapCursor {
+				m.SetCursor(len(m.rows) - 1)
+			} else {
+				m.MoveUp(1)
+			}
 		case key.Matches(msg, m.KeyMap.LineDown):
-			m.MoveDown(1)
+			if m.cursor == len(m.rows)-1 && m.wrapCursor {
+				m.SetCursor(0)
+			} else {
+				m.MoveDown(1)
+			}
 		case key.Matches(msg, m.KeyMap.PageUp):
 			m.MoveUp(m.Height())
 		case key.Matches(msg, m.KeyMap.PageDown):
