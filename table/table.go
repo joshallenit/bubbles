@@ -483,56 +483,6 @@ func (m *Model) FromValues(value, separator string) {
 	m.SetRows(rows)
 }
 
-<<<<<<< HEAD
-func (m Model) headersView() string {
-	s := make([]string, 0, len(m.cols))
-	for _, col := range m.cols {
-		if col.Width <= 0 {
-			continue
-		}
-		style := lipgloss.NewStyle().Width(col.Width).MaxWidth(col.Width).Inline(true)
-		renderedCell := style.Render(runewidth.Truncate(col.Title, col.Width, "…"))
-		s = append(s, m.styles.Header.Render(renderedCell))
-	}
-	return lipgloss.JoinHorizontal(lipgloss.Top, s...)
-}
-
-func (m *Model) renderRow(r int) string {
-	s := make([]string, 0, len(m.cols))
-	for i, value := range m.rows[r] {
-		if m.cols[i].Width <= 0 {
-			continue
-		}
-		style := lipgloss.NewStyle().Width(m.cols[i].Width).MaxWidth(m.cols[i].Width).Inline(true)
-		renderedCell := m.styles.Cell.Render(style.Render(runewidth.Truncate(value, m.cols[i].Width, "…")))
-		s = append(s, renderedCell)
-	}
-
-	row := lipgloss.JoinHorizontal(lipgloss.Top, s...)
-
-	if r == m.cursor {
-		return m.styles.Selected.Render(row)
-	}
-
-	return row
-=======
-func max(a, b int) int {
-	if a > b {
-		return a
-	}
-
-	return b
-}
-
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-
-	return b
->>>>>>> 7df6b29 (Josh allen it/table use lipgloss for rendering (#2))
-}
-
 func clamp(v, low, high int) int {
 	return min(max(v, low), high)
 }
