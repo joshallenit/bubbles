@@ -8,7 +8,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	lipglosstable "github.com/charmbracelet/lipgloss/table"
-	"github.com/mattn/go-runewidth"
+	"github.com/charmbracelet/x/ansi"
 )
 
 // Model defines a state for the table widget.
@@ -332,8 +332,8 @@ func (m Model) getRenderColumns(maxColumnWidths []int) []string {
 	columns := make([]string, len(m.cols))
 	for i, col := range m.cols {
 		data := col.Title
-		data = runewidth.Truncate(data, maxColumnWidths[i], "…")
-		padding := strings.Repeat(" ", max(0, maxColumnWidths[i]-len(data)))
+		data = ansi.Truncate(data, maxColumnWidths[i], "…")
+		padding := strings.Repeat(" ", max(0, maxColumnWidths[i]-lipgloss.Width(data)))
 		columns[i] = data + padding
 	}
 	return columns
@@ -362,7 +362,7 @@ func (m Model) getMaxColumnWidths() []int {
 				break
 			}
 			if i < len(maxColumnWidths) {
-				maxColumnWidths[i] = max(maxColumnWidths[i], len(col))
+				maxColumnWidths[i] = max(maxColumnWidths[i], lipgloss.Width(col))
 			} else {
 				break
 			}
@@ -498,8 +498,8 @@ var _ lipglosstable.Data = tableData{}
 
 func (t tableData) At(row, col int) string {
 	data := t.m.rows[t.m.start+row][col]
-	data = runewidth.Truncate(data, t.maxColumnWidths[col], "…")
-	padding := strings.Repeat(" ", max(0, t.maxColumnWidths[col]-len(data)))
+	data = ansi.Truncate(data, t.maxColumnWidths[col], "…")
+	padding := strings.Repeat(" ", max(0, t.maxColumnWidths[col]-lipgloss.Width(data)))
 	return data + padding
 }
 
