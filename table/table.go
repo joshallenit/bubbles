@@ -498,9 +498,13 @@ var _ lipglosstable.Data = tableData{}
 
 func (t tableData) At(row, col int) string {
 	data := t.m.rows[t.m.start+row][col]
-	data = ansi.Truncate(data, t.maxColumnWidths[col], "…")
-	padding := strings.Repeat(" ", max(0, t.maxColumnWidths[col]-lipgloss.Width(data)))
-	return data + padding
+	lines := strings.Split(data, "\n")
+	for i, line := range lines {
+		line = ansi.Truncate(line, t.maxColumnWidths[col], "…")
+		padding := strings.Repeat(" ", max(0, t.maxColumnWidths[col]-lipgloss.Width(line)))
+		lines[i] = line + padding
+	}
+	return strings.Join(lines, "\n")
 }
 
 func (t tableData) Rows() int {
