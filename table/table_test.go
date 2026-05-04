@@ -1,6 +1,7 @@
 package table
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/charmbracelet/lipgloss"
@@ -160,6 +161,34 @@ func TestTableAlignment(t *testing.T) {
 		got := ansi.Strip(baseStyle.Render(biscuits.View()))
 		golden.RequireEqual(t, []byte(got))
 	})
+}
+
+func TestMultiLineCellNotTruncated(t *testing.T) {
+	columns := []Column{
+		{Title: "Index"},
+		{Title: "Summary"},
+	}
+	multiLineSummary := "Main commit subject\n- Fix review issues\n- Use domain types"
+	rows := []Row{
+		{"1", multiLineSummary},
+	}
+	model := New(
+		WithColumns(columns),
+		WithRows(rows),
+		WithFocused(true),
+	)
+	maxColumnWidths := model.getMaxColumnWidths()
+	td := tableData{m: model, maxColumnWidths: maxColumnWidths}
+	got := td.At(0, 1)
+	for i, line := range strings.Split(multiLineSummary, "\n") {
+		if !strings.Contains(got, strings.TrimSpace(line)) {
+			t.Errorf("line %d missing from output: %q\ngot: %q", i, line, got)
+		}
+	}
+	gotLines := strings.Split(got, "\n")
+	if len(gotLines) != 3 {
+		t.Errorf("expected 3 lines, got %d: %q", len(gotLines), got)
+	}
 }
 
 func TestWrapCursor(t *testing.T) {
